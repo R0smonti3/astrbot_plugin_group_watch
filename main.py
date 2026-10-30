@@ -1096,6 +1096,10 @@ class GroupWatchPlugin(Star):
                 provider = self.context.get_provider_by_id(provider_id)
             except Exception:
                 provider = None
+            if provider is None:
+                logger.warning(
+                    f"[GroupWatch] 指定的语境评估模型提供商 '{provider_id}' 未找到或已失效，自动回退使用当前会话的主模型。"
+                )
         if provider is None:
             provider = self.context.get_using_provider(umo=session_id)
         return provider

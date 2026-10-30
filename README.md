@@ -49,7 +49,7 @@ git clone https://github.com/R0smonti3/astrbot_plugin_group_watch.git
 | `groups` | 列表 | `[]` | 会话 UMO 或群号 | 生效群聊列表。留空时对所有群聊生效。 |
 | `wake_words` | 列表 | `[]` | 文本列表 | 关注关键词列表。出现时提高评估权重并结合语境甄别。 |
 | `judge_enabled` | 布尔值 | `true` | `true` / `false` | 是否开启轻量模型的主动接话评估。 |
-| `judge_provider_id` | 字符串 | `"deepseek/deepseek-flash"` | 模型提供商 ID | 负责语境分析的轻量模型（建议选择响应快、单价低的模型）。 |
+| `judge_provider_id` | 字符串 | `""` (留空) | 模型提供商下拉列表 | 动态模型选择器。留空默认直接使用主程序当前会话的主模型；也可下拉自选低成本小模型 |
 | `judge_context_count` | 整数 | `8` | `5 ~ 30` 条 | 评估时参考的历史上下文消息数量。 |
 | `reply_willingness` | 整数 | `3` | `1 ~ 5` 档 | 主动接话积极度（1:极保守≥85分，2:较保守≥70分，3:适中≥55分，4:积极≥42分，5:活跃≥30分）。 |
 | `follow_enabled` | 布尔值 | `true` | `true` / `false` | 是否开启多轮对话跟进。关闭后每次交互均作单轮处理。 |
