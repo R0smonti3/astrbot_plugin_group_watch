@@ -7,7 +7,7 @@ from typing import Any
 # ----------------------------------------------------------------------
 BUFFER_LIMIT = 200
 MAX_DECISIONS = 50
-DEFAULT_JUDGE_PROVIDER = "deepseek/deepseek-flash"
+DEFAULT_JUDGE_PROVIDER = ""
 IMAGE_WAIT_SECONDS = 6
 MAX_IMAGES_PER_MESSAGE = 4
 
@@ -66,12 +66,10 @@ DEFAULT_JUDGE_SYSTEM_PROMPT = (
 )
 
 
-def as_bool(value: Any, default: bool = False) -> bool:
-    """宽松解析布尔值类型。"""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"true", "1", "yes", "y", "是"}
-    if isinstance(value, (int, float)):
-        return bool(value)
-    return default
+def as_bool(val: Any) -> bool:
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.strip().lower() in ("true", "1", "yes", "on", "y", "t")
+    return bool(val)
+
