@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>群聊巡视 · 实时状态看板</title>
+<!-- 必须在 head 中显式引入 bridge-sdk.js，AstrBot 服务端会将其替换为带安全 Token 的真实 SDK 路径 -->
+<script src="/api/plugin/page/bridge-sdk.js"></script>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --card-subtle: #f1f5f9;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --text-dim: #94a3b8;
+    --primary: #2563eb;
+    --primary-light: #eff6ff;
+    --success: #16a34a;
+    --success-light: #f0fdf4;
+    --warning: #d97706;
+    --warning-light: #fffbeb;
+    --danger: #dc2626;
+    --danger-light: #fef2f2;
+    --purple: #7c3aed;
+    --purple-light: #f5f3ff;
+    --reason-bg: #f8fafc;
+    --reason-border: #cbd5e1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0f17;
+      --card: #151c28;
+      --card-subtle: #1e2636;
+      --border: #283347;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --primary: #3b82f6;
+      --primary-light: #1e293b;
+      --success: #22c55e;
+      --success-light: #143522;
+      --warning: #f59e0b;
+      --warning-light: #3d2c12;
+      --danger: #ef4444;
+      --danger-light: #361717;
+      --purple: #a855f7;
+      --purple-light: #2e1a47;
+      --reason-bg: #101622;
+      --reason-border: #2b394f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .title-area h1 {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .title-area .sub {
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .pulse-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--success);
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--success-light);
+  }
+  .pulse-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+  }
+  .meta-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    margin-bottom: 24px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 18px;
+  }
+  .meta-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .meta-pill strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .groups-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .group-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-title {
+    font-size: 16px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .badge {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+  }
+  .badge-follow {
+    color: var(--warning);
+    background: var(--warning-light);
+    border-color: var(--warning);
+  }
+  .badge-idle {
+    color: var(--text-muted);
+    background: var(--card-subtle);
+    border-color: var(--border);
+  }
+  .badge-danger {
+    color: var(--danger);
+    background: var(--danger-light);
+    border-color: var(--danger);
+  }
+  .chat-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 10px;
+    background: var(--card-subtle);
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 18px;
+    font-size: 13px;
+  }
+  .chat-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .chat-info-label {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .chat-info-val {
+    color: var(--text);
+    word-break: break-all;
+  }
+  .decisions-section-title {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+  }
+  .decisions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .decision-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: var(--card);
+    transition: all 0.2s ease;
+  }
+  .decision-card:hover {
+    border-color: var(--primary);
+  }
+  .decision-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .tag-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .tag {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--card-subtle);
+    color: var(--text-muted);
+  }
+  .tag-success {
+    background: var(--success-light);
+    color: var(--success);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+  }
+  .tag-neutral {
+    background: var(--card-subtle);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+  .tag-primary {
+    background: var(--primary-light);
+    color: var(--primary);
+    border: 1px solid rgba(37, 99, 235, 0.3);
+  }
+  .tag-warning {
+    background: var(--warning-light);
+    color: var(--warning);
+    border: 1px solid rgba(217, 119, 6, 0.3);
+  }
+  .tag-danger {
+    background: var(--danger-light);
+    color: var(--danger);
+    border: 1px solid rgba(220, 38, 38, 0.3);
+  }
+  .tag-purple {
+    background: var(--purple-light);
+    color: var(--purple);
+    border: 1px solid rgba(124, 58, 237, 0.3);
+  }
+  .decision-time {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .target-msg-box {
+    font-size: 13px;
+    color: var(--text);
+    background: var(--card-subtle);
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    word-break: break-all;
+  }
+  .target-msg-box strong {
+    color: var(--primary);
+  }
+  .reason-box {
+    background: var(--reason-bg);
+    border-left: 3px solid var(--primary);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .reason-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 2px;
+    text-transform: uppercase;
+  }
+  .timer {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--warning);
+  }
+  .empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 30px 10px;
+    font-size: 13px;
+  }
+  .err {
+    color: var(--danger);
+    background: var(--danger-light);
+    border: 1px solid var(--danger);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-top: 14px;
+    font-size: 13px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="title-area">
+      <h1>群聊巡视 · 实时状态看板</h1>
+      <div class="sub">实时查看轻量模型的接话判断、打分理由与回复记录</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button id="btn-token" onclick="window.promptToken && window.promptToken()" style="background:var(--card);border:1px solid var(--border);color:var(--text-muted);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;">🔑 访问令牌</button>
+      <div class="pulse-indicator">
+        <span class="pulse-dot"></span>
+        <span id="sync-status">实时同步中 (每2.5秒刷新)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="meta-grid" id="meta">
+    <div class="meta-pill">正在初始化通信...</div>
+  </div>
+
+  <div class="groups-grid" id="groups">
+    <div class="empty">正在加载群聊巡视状态...</div>
+  </div>
+
+  <div class="err" id="err"></div>
+
+<script>
+(function () {
+  let state = null;
+  let fetchedAt = 0;
+  let isRequesting = false;
+
+  function pad(n) { return String(Math.max(0, n)).padStart(2, "0"); }
+  function mmss(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    return pad(Math.floor(sec / 60)) + ":" + pad(sec % 60);
+  }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  function getBridge() {
+    return window.AstrBotPluginPage || window.AstrBotPluginView;
+  }
+
+  // 确保 Bridge SDK 已加载并完成握手
+  async function ensureBridge() {
+    for (let i = 0; i < 40; i++) {
+      const api = getBridge();
+      if (api && typeof api.apiGet === "function") {
+        if (typeof api.ready === "function") {
+          try {
+            await Promise.race([
+              api.ready(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("bridge.ready timeout")), 1500))
+            ]);
+          } catch (e) {
+            // 忽略超时，继续使用 apiGet
+          }
+        }
+        return api;
+      }
+      await new Promise(r => setTimeout(r, 50));
+    }
+    return null;
+  }
+
+  function getToken() {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlToken = urlParams.get("token");
+      if (urlToken) {
+        localStorage.setItem("gw_web_token", urlToken);
+        return urlToken;
+      }
+      return localStorage.getItem("gw_web_token") || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function setToken(token) {
+    try {
+      if (token) {
+        localStorage.setItem("gw_web_token", token);
+      } else {
+        localStorage.removeItem("gw_web_token");
+      }
+    } catch (e) {}
+  }
+
+  window.promptToken = function () {
+    const current = getToken();
+    const token = prompt("请输入看板访问令牌 (Token)：\n（若服务端未配置 web_token 则留空即可）", current);
+    if (token !== null) {
+      setToken(token.trim());
+      load();
+    }
+  };
+
+  async function fetchStatus() {
+    const token = getToken();
+    const api = await ensureBridge();
+    if (api && typeof api.apiGet === "function") {
+      const params = token ? { token: token } : undefined;
+      return await api.apiGet("status", params);
+    }
+    const url = "/astrbot_plugin_group_watch/status" + (token ? ("?token=" + encodeURIComponent(token)) : "");
+    const headers = token ? { "Authorization": "Bearer " + token } : {};
+    const resp = await fetch(url, { headers: headers });
+    if (resp.status === 403) {
+      throw new Error("403 Forbidden: 访问受限，缺少或无效的看板 Token");
+    }
+    if (!resp.ok) {
+      throw new Error("HTTP " + resp.status + " " + resp.statusText);
+    }
+    return await resp.json();
+  }
+
+  let authPrompting = false;
+  function handleAuthError(msg) {
+    const errBox = document.getElementById("err");
+    errBox.style.display = "block";
+    errBox.innerHTML = '⚠️ <strong>访问受限 (403)</strong>：该看板已开启访问保护。' +
+      '<button onclick="window.promptToken()" style="margin-left:10px;padding:3px 10px;cursor:pointer;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:12px;">输入访问令牌</button>';
+    if (!authPrompting) {
+      authPrompting = true;
+      setTimeout(function () {
+        window.promptToken();
+        authPrompting = false;
+      }, 200);
+    }
+  }
+
+  async function load() {
+    if (isRequesting) return;
+    isRequesting = true;
+    try {
+      const res = await fetchStatus();
+      if (res && res.status === "error" && (res.message || "").indexOf("403") !== -1) {
+        handleAuthError(res.message);
+        return;
+      }
+      if (res && typeof res === "object") {
+        state = res;
+        fetchedAt = Date.now();
+        const errBox = document.getElementById("err");
+        errBox.style.display = "none";
+        errBox.textContent = "";
+      } else {
+        throw new Error("接口返回了非对象数据: " + JSON.stringify(res));
+      }
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e);
+      if (msg.indexOf("403") !== -1 || msg.indexOf("Token") !== -1 || msg.indexOf("令牌") !== -1) {
+        handleAuthError(msg);
+      } else {
+        const errBox = document.getElementById("err");
+        errBox.style.display = "block";
+        errBox.textContent = "状态读取失败: " + msg;
+      }
+    } finally {
+      isRequesting = false;
+      render();
+    }
+  }
+
+  function renderMeta() {
+    if (!state) return;
+    const botDisplay = state.bot_name
+      ? esc(state.bot_name) + " (" + esc(state.bot_id || "自动获取中") + ")"
+      : esc(state.bot_id || "自动获取中");
+
+    const items = [
+      ["巡视状态", state.enabled ? '<span style="color:var(--success);font-weight:700;">● 运行中</span>' : '<span style="color:var(--text-muted)">○ 已暂停</span>'],
+      ["机器人身份", botDisplay],
+      ["评估模型", state.judge_provider_id || "-"],
+      ["接话积极度", state.reply_willingness_desc || (state.reply_willingness + " 档")],
+      ["多轮跟进", state.follow_enabled ? '<span style="color:var(--success);font-weight:700;">● 开启</span>' : '<span style="color:var(--text-muted)">○ 关闭</span>'],
+      ["关注关键词", (state.wake_words && state.wake_words.length) ? esc(state.wake_words.join("、")) : '<span style="color:var(--text-muted)">未设置</span>'],
+      ["跟进互动加分", "+" + (state.follow_score_bonus || 20) + " 分"],
+      ["参考上下文", (state.judge_context_count || 8) + " 条"],
+      ["消息防抖缓冲", (state.debounce_seconds || 3) + " 秒"],
+      ["排队复读跟读", state.repeat_trigger_count ? state.repeat_trigger_count + " 条触发" : "已关闭"],
+      ["指令静默时长", (state.silence_duration_minutes || 10) + " 分钟"],
+      ["跟进最长维持", (state.follow_max_minutes || 10) + " 分钟"],
+      ["生效群聊", (state.groups ? state.groups.length : 0) + " 个"]
+    ];
+    document.getElementById("meta").innerHTML = items
+      .map(function (it) {
+        return '<div class="meta-pill">' + esc(it[0]) + ": <strong>" + it[1] + "</strong></div>";
+      })
+      .join("");
+  }
+
+  function render() {
+    renderMeta();
+    const box = document.getElementById("groups");
+    if (!state) return;
+    const groups = state.groups || [];
+    if (!groups.length) {
+      box.innerHTML = '<div class="empty">暂无群聊活跃记录（群内产生新消息时将自动呈现）</div>';
+      return;
+    }
+    const elapsed = Math.floor((Date.now() - fetchedAt) / 1000);
+    box.innerHTML = groups.map(function (g) {
+      const followLeft = Math.max(0, (g.follow_left || 0) - elapsed);
+      const silenceLeft = Math.max(0, (g.silence_left || 0) - elapsed);
+      let statusBadge = '';
+      if (silenceLeft > 0) {
+        statusBadge = '<span class="badge badge-danger">🛑 指令静默中 · 剩余 <span class="timer">' + mmss(silenceLeft) + '</span></span>';
+      } else if (followLeft > 0) {
+        const targetStr = g.follow_target ? ' · 互动对象: ' + esc(g.follow_target) : '';
+        statusBadge = '<span class="badge badge-follow">🔥 跟进中 · 剩余 <span class="timer">' + mmss(followLeft) + '</span>' + targetStr + '</span>';
+      } else {
+        statusBadge = '<span class="badge badge-idle">👀 巡视待命中</span>';
+      }
+
+      const lastHumanStr = g.last_human
+        ? esc(g.last_human.qq) + " (" + g.last_human.ago + " 秒前): " + esc(g.last_human.text)
+        : "无记录";
+      const lastBotStr = g.last_bot
+        ? "(" + g.last_bot.ago + " 秒前): " + esc(g.last_bot.text)
+        : "无记录";
+
+      const decisions = (g.decisions || []).map(function (d) {
+        let modeTag = '<span class="tag tag-neutral">语境评估</span>';
+        if (d.mode === "repeat") {
+          modeTag = '<span class="tag tag-primary">消息复读</span>';
+        } else if (d.mode === "silence") {
+          modeTag = '<span class="tag tag-danger">指令静默</span>';
+        } else if (d.mode === "follow") {
+          modeTag = '<span class="tag tag-warning">多轮跟进</span>';
+        } else if (d.mode === "wake") {
+          modeTag = '<span class="tag tag-purple">@提及唤醒</span>';
+        } else if (d.mode === "wake_word") {
+          modeTag = '<span class="tag tag-purple">关键词触发</span>';
+        } else if (d.mode === "veto") {
+          modeTag = '<span class="tag tag-neutral">定向对话</span>';
+        } else if (d.mode === "image") {
+          modeTag = '<span class="tag tag-neutral">图片消息</span>';
+        } else if (d.mode === "command") {
+          modeTag = '<span class="tag tag-neutral">指令消息</span>';
+        } else if (d.mode === "merged") {
+          modeTag = '<span class="tag tag-neutral">防抖合并</span>';
+        }
+
+        let targetTag = "";
+        if (d.target === "bot") {
+          targetTag = '<span class="tag tag-purple">对我说</span>';
+        } else if (d.target === "user") {
+          targetTag = '<span class="tag tag-neutral">群友间对话</span>';
+        } else if (d.target === "everyone") {
+          targetTag = '<span class="tag tag-neutral">公开发言</span>';
+        }
+
+        const hasScore = d.score !== undefined && d.threshold !== undefined && d.threshold > 0;
+        const scoreTag = hasScore
+          ? '<span class="tag ' + (d.related ? 'tag-success' : 'tag-neutral') + '">评分: ' + d.score + ' / 门槛: ' + d.threshold + '</span>'
+          : '';
+
+        const relatedTag = d.related
+          ? '<span class="tag tag-success">适合接话</span>'
+          : '<span class="tag tag-neutral">保持安静</span>';
+
+        let actionTag = "";
+        if (d.mode === "repeat") {
+          actionTag = '<span class="tag tag-success">🚀 已原样跟读</span>';
+        } else if (d.sent) {
+          actionTag = '<span class="tag tag-primary">🚀 已唤醒主模型回复</span>';
+        } else if (d.reply) {
+          actionTag = '<span class="tag tag-warning">⏳ 待主模型回复</span>';
+        } else {
+          actionTag = '<span class="tag tag-neutral">💤 不插话</span>';
+        }
+
+        const atTag = d.addressed ? '<span class="tag tag-warning">🎯 提到机器人</span>' : "";
+
+        const senderDisplayName = d.target_name
+          ? esc(d.target_name) + "(" + esc(d.target_uid || "群友") + ")"
+          : esc(d.target_uid || "群友");
+
+        const targetMsg = (d.target_text || "").trim();
+        const targetHtml = targetMsg
+          ? '<div class="target-msg-box">💬 <strong>' + senderDisplayName + '</strong>: ' + esc(targetMsg) + '</div>'
+          : "";
+
+        return '<div class="decision-card">' +
+          '<div class="decision-head">' +
+            '<div class="tag-group">' + modeTag + targetTag + scoreTag + relatedTag + actionTag + atTag + '</div>' +
+            '<div class="decision-time">' + esc(d.time_str || "") + ' (' + d.ago + ' 秒前)</div>' +
+          '</div>' +
+          targetHtml +
+          '<div class="reason-box">' +
+            '<div class="reason-label">💡 判断理由</div>' +
+            '<div>' + esc(d.reason || "未给出具体理由") + '</div>' +
+          '</div>' +
+        '</div>';
+      }).join("");
+
+      return '<div class="group-card">' +
+        '<div class="card-top">' +
+          '<div class="card-title"><span>👥 ' + esc(g.umo) + '</span>' + statusBadge + '</div>' +
+        '</div>' +
+        '<div class="chat-info">' +
+          '<div class="chat-info-item"><span class="chat-info-label">最新群友发言</span><span class="chat-info-val">' + lastHumanStr + '</span></div>' +
+          '<div class="chat-info-item"><span class="chat-info-label">最新机器人发言</span><span class="chat-info-val">' + lastBotStr + '</span></div>' +
+        '</div>' +
+        '<div class="decisions-section-title">💬 实时判断记录</div>' +
+        '<div class="decisions-list">' +
+          (decisions || '<div class="empty" style="padding:15px 0;">该群暂无判断记录</div>') +
+        '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  // 页面就绪后立即启动轮询
+  load();
+  setInterval(render, 1000);
+  setInterval(load, 2500);
+})();
+</script>
+</body>
+</html>
