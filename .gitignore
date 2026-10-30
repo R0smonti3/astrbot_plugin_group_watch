@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.tmp
+*.json.tmp
+.DS_Store
+.idea/
+.vscode/
+data/
+silence_records.json
