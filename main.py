@@ -1102,7 +1102,7 @@ class GroupWatchPlugin(Star):
 
     @staticmethod
     async def _call_text(provider, system: str, prompt: str, session_id: str) -> str:
-        """评估模型：严格死锁低温度(0.1)与Token上限(600)，杜绝多余参数，自动防容错降级。"""
+        """评估模型：只锁死低温度(0.1)，不限Token上限，完美支持带思维链的模型(如ds-1017/R1)，自动容错降级。"""
         try:
             try:
                 response = await asyncio.wait_for(
@@ -1112,10 +1112,9 @@ class GroupWatchPlugin(Star):
                         contexts=[],
                         session_id=session_id,
                         temperature=0.1,
-                        max_tokens=600,
                         response_format={"type": "json_object"},
                     ),
-                    timeout=45,
+                    timeout=60,
                 )
             except Exception as first_err:
                 err_str = str(first_err).lower()
@@ -1128,9 +1127,8 @@ class GroupWatchPlugin(Star):
                                 contexts=[],
                                 session_id=session_id,
                                 temperature=0.1,
-                                max_tokens=600,
                             ),
-                            timeout=45,
+                            timeout=60,
                         )
                     except Exception:
                         response = await asyncio.wait_for(
@@ -1140,7 +1138,7 @@ class GroupWatchPlugin(Star):
                                 contexts=[],
                                 session_id=session_id,
                             ),
-                            timeout=45,
+                            timeout=60,
                         )
                 else:
                     response = await asyncio.wait_for(
@@ -1150,7 +1148,7 @@ class GroupWatchPlugin(Star):
                             contexts=[],
                             session_id=session_id,
                         ),
-                        timeout=45,
+                        timeout=60,
                     )
         except Exception as exc:  # noqa: BLE001
             logger.error(f"[group_watch] 评估模型调用失败: {exc}", exc_info=True)
@@ -1161,7 +1159,9 @@ class GroupWatchPlugin(Star):
     def _parse_json(raw: str) -> dict[str, Any] | None:
         if not raw:
             return None
-        text = re.sub(r"```(?:json)?", "", raw, flags=re.I).strip()
+        # 预先过滤掉思考模型的思维链标签 <think>...</think>，防止大括号干扰 JSON 提取
+        clean_raw = re.sub(r"<think>[\s\S]*?</think>", "", raw, flags=re.I).strip()
+        text = re.sub(r"```(?:json)?", "", clean_raw or raw, flags=re.I).strip()
         start, end = text.find("{"), text.rfind("}")
         if start >= 0 and end > start:
             candidate = text[start : end + 1]
@@ -1171,14 +1171,14 @@ class GroupWatchPlugin(Star):
                     return data
             except Exception:
                 try:
-                    fixed = re.sub(r",\s*([}\]])", r"\1", candidate)
+                    fixed = re.sub(r",\s*([}\]])", r"", candidate)
                     data = json.loads(fixed)
                     if isinstance(data, dict):
                         return data
                 except Exception:
                     pass
 
-        # 正则鲁棒兜底解析
+        # 兜底捕获字段
         extracted: dict[str, Any] = {}
         target_m = re.search(r'"target"\s*:\s*"([^"]+)"', text, re.I)
         if target_m:
