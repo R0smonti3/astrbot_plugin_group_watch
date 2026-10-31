@@ -1096,17 +1096,13 @@ class GroupWatchPlugin(Star):
                 provider = self.context.get_provider_by_id(provider_id)
             except Exception:
                 provider = None
-            if provider is None:
-                logger.warning(
-                    f"[GroupWatch] 指定的语境评估模型提供商 '{provider_id}' 未找到或已失效，自动回退使用当前会话的主模型。"
-                )
         if provider is None:
             provider = self.context.get_using_provider(umo=session_id)
         return provider
 
     @staticmethod
     async def _call_text(provider, system: str, prompt: str, session_id: str) -> str:
-        """调用判断模型，固定低采样温度并尝试结构化 JSON 返回。"""
+        """评估模型：严格死锁低温度(0.1)与Token上限(600)，杜绝多余参数，自动防容错降级。"""
         try:
             try:
                 response = await asyncio.wait_for(
@@ -1116,39 +1112,48 @@ class GroupWatchPlugin(Star):
                         contexts=[],
                         session_id=session_id,
                         temperature=0.1,
+                        max_tokens=600,
                         response_format={"type": "json_object"},
                     ),
-                    timeout=60,
+                    timeout=45,
                 )
-            except TypeError:
-                # 兼容不接收 extra kwargs 的老版本适配器
-                response = await asyncio.wait_for(
-                    provider.text_chat(
-                        prompt=prompt,
-                        system_prompt=system,
-                        contexts=[],
-                        session_id=session_id,
-                    ),
-                    timeout=60,
-                )
-            except Exception as call_err:
-                err_str = str(call_err).lower()
-                if "response_format" in err_str or "unrecognized parameter" in err_str:
-                    # 模型服务商不支持 response_format，回退纯温度调用
+            except Exception as first_err:
+                err_str = str(first_err).lower()
+                if any(x in err_str for x in ("response_format", "unrecognized", "extra inputs", "not supported", "typeerror")):
+                    try:
+                        response = await asyncio.wait_for(
+                            provider.text_chat(
+                                prompt=prompt,
+                                system_prompt=system,
+                                contexts=[],
+                                session_id=session_id,
+                                temperature=0.1,
+                                max_tokens=600,
+                            ),
+                            timeout=45,
+                        )
+                    except Exception:
+                        response = await asyncio.wait_for(
+                            provider.text_chat(
+                                prompt=prompt,
+                                system_prompt=system,
+                                contexts=[],
+                                session_id=session_id,
+                            ),
+                            timeout=45,
+                        )
+                else:
                     response = await asyncio.wait_for(
                         provider.text_chat(
                             prompt=prompt,
                             system_prompt=system,
                             contexts=[],
                             session_id=session_id,
-                            temperature=0.1,
                         ),
-                        timeout=60,
+                        timeout=45,
                     )
-                else:
-                    raise call_err
         except Exception as exc:  # noqa: BLE001
-            logger.error(f"[group_watch] 判断模型调用失败: {exc}", exc_info=True)
+            logger.error(f"[group_watch] 评估模型调用失败: {exc}", exc_info=True)
             return ""
         return str(getattr(response, "completion_text", "") or "").strip()
 

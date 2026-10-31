@@ -66,10 +66,19 @@ DEFAULT_JUDGE_SYSTEM_PROMPT = (
 )
 
 
-def as_bool(val: Any) -> bool:
+def as_bool(val: Any, default: bool = False) -> bool:
+    if val is None:
+        return default
     if isinstance(val, bool):
         return val
+    if isinstance(val, (int, float)):
+        return bool(val)
     if isinstance(val, str):
-        return val.strip().lower() in ("true", "1", "yes", "on", "y", "t")
+        v = val.strip().lower()
+        if v in ("true", "1", "yes", "on", "y", "t"):
+            return True
+        if v in ("false", "0", "no", "off", "n", "f"):
+            return False
+        return default
     return bool(val)
 

@@ -6,7 +6,7 @@ desc: >-
   实时监听群聊消息并由轻量评估模型实时分析语境，在适当时机自然主动接话；
   支持多轮对话跟进、关注关键词加权识别、指令静默熔断以及可视化实时监控看板。
 help: 可使用 /gw status 查看状态，/gw on 与 /gw off 控制运行开关，/gw silence 控制静默。
-version: 1.5.1
+version: 1.5.2
 author: R0smonti3
 repo: https://github.com/R0smonti3/astrbot_plugin_group_watch
 category: AI 增强
