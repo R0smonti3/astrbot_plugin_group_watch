@@ -176,21 +176,36 @@ class GroupWatchPlugin(Star):
 
     def _identity_block(self, session_id: str = "") -> str:
         bot_id = self._bot_id
-        bot_name = self._bot_name or "机器人"
+        state = self.state_mgr.get_state(session_id, self._bot_id, self._bot_name) if session_id else {}
+        bot_name = (state.get("bot_name") if state else None) or self._bot_name or "机器人"
         participants = (
             self.state_mgr.get_participants(session_id, count=15) if session_id else []
         )
         part_str = "、".join(participants[:12]) if participants else "暂无"
 
+        # 动态提取用户配置中的唤醒词/别名，过滤掉与 bot_name 相同的项
+        raw_wakes = self._wake_words()
+        aliases = [
+            w.strip()
+            for w in raw_wakes
+            if w and w.strip() and w.strip().lower() != bot_name.lower()
+        ]
+        alias_str = f"；你的已知简称、别名与外号包括：{'、'.join(aliases)}" if aliases else ""
+        alias_rule_mention = (
+            f"提到你的全名「{bot_name}」或任意别名简称（如：{'、'.join(aliases)}）"
+            if aliases
+            else f"提到「{bot_name}」"
+        )
+
         return (
-            f"【自身身份】：你在本群的唯一名字是「{bot_name}」"
-            + (f"，账号是 {bot_id}" if bot_id else "")
-            + f"；“我”仅指你自己。\n"
+            f"【自身身份】：你在本群的名字是「{bot_name}」"
+            + (f"（账号 {bot_id}）" if bot_id else "")
+            + f"{alias_str}；“我”仅指你自己。\n"
             f"【群内近期活跃群友】：{part_str}\n"
-            f"【关键人称与归属判定铁律】：\n"
-            f"1. 其他群友称呼与外号辨析：群内其他群友有各自的全名、简称与外号。群友在消息中叫他人名字或外号，是在跟该群友说话，绝不是在跟你说话！\n"
-            f"2. 第二人称“你”的归属：群友说“你”时，若上文中其他人类群友正在互相接话讨论，这个“你”指向的是那位人类群友，绝对不是你！即便你刚才插过话，也不要误认为所有“你”都是对自己说的！\n"
-            f"3. 只有明确提到「{bot_name}」、显式 @你，或明确针对机器人刚才发表的观点进行直接互动时，target 才能判定为 \"bot\"。"
+            f"【称谓与代词指代规则】：\n"
+            f"1. 机器人称谓：群友{alias_rule_mention}、显式 @你/回复你、或发起呼唤，属于对机器人发言，判定 target 为 \"bot\"；\n"
+            f"2. 其他群友称谓：群友提到活跃群友名单中的名字或他人外号，属于对该群友说话，判定 target 为 \"user\"；\n"
+            f"3. 代词“你”的归属：若上文人类群友正在互相接话对质（非与机器人互动），“你”指对方人类群友；若机器人正与该群友处于连续对话中，该群友说的“你”指向机器人。"
         )
 
     # ------------------------------------------------------------------
@@ -292,11 +307,81 @@ class GroupWatchPlugin(Star):
             logger.error(f"[group_watch] 发送纯文本消息失败: {exc}", exc_info=True)
             return False
 
+    async def _resolve_bot_name(self, event: AstrMessageEvent) -> str:
+        """获取机器人在当前群的专属昵称/名片，支持跨平台与安全优雅降级。"""
+        # 1. 优先尝试从平台客户端获取当前群名片 (如 aiocqhttp / OneBot)
+        try:
+            bot_obj = getattr(event, "bot", None)
+            group_id = event.get_group_id()
+            self_id = event.get_self_id() or self._bot_id
+            if bot_obj and group_id and self_id:
+                if hasattr(bot_obj, "get_group_member_info") and callable(bot_obj.get_group_member_info):
+                    info = await bot_obj.get_group_member_info(
+                        group_id=int(group_id),
+                        user_id=int(self_id),
+                        no_cache=False,
+                    )
+                    if isinstance(info, dict):
+                        card = str(info.get("card") or "").strip()
+                        if card:
+                            return card
+                        nick = str(info.get("nickname") or "").strip()
+                        if nick:
+                            return nick
+        except Exception:
+            pass
+
+        # 2. 尝试从事件内置接口获取
+        try:
+            if hasattr(event, "get_self_name") and callable(event.get_self_name):
+                name = str(event.get_self_name() or "").strip()
+                if name:
+                    return name
+        except Exception:
+            pass
+
+        # 3. 降级使用全局缓存或通用保底
+        return self._bot_name or "机器人"
+
     # ------------------------------------------------------------------
-    # 图片摘要拦截
+    # LLM 请求拦截与场景自适应
     # ------------------------------------------------------------------
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: Any) -> None:
+        if event.get_extra("_gw_triggered"):
+            if not event.get_extra("_gw_had_explicit_at", False):
+                orig_prompt = event.get_extra("_gw_orig_prompt")
+                if orig_prompt is not None and hasattr(req, "prompt"):
+                    req.prompt = orig_prompt
+
+                session_id = event.unified_msg_origin
+                state = self.state_mgr.get_state(session_id, self._bot_id, self._bot_name)
+                current_bot_name = str(state.get("bot_name") or self._bot_name or "").strip()
+
+                raw_wakes = self._wake_words()
+                aliases = [
+                    w.strip()
+                    for w in raw_wakes
+                    if w and w.strip() and (not current_bot_name or w.strip().lower() != current_bot_name.lower())
+                ]
+
+                alias_str = f"（别名称谓包括：{'、'.join(aliases)}）" if aliases else ""
+                call_info = f"「{current_bot_name}」{alias_str}" if (current_bot_name and current_bot_name not in ("我", "机器人")) else (f"称谓包括：{'、'.join(aliases)}" if aliases else "")
+                name_clause = f"你在本群的名字是{call_info}。" if call_info else ""
+
+                hint = (
+                    f"[群聊场景说明]：你是被插件唤醒的，插件判断这个时候应当主动发言，但是没有人@你。"
+                    f"{name_clause}"
+                    f"请结合语境自然交流：若群友在呼唤你，请正常回应；"
+                    f"若群友在相互交谈探讨，以普通群友身份随和参与即可，切勿产生不必要的自我辩解。"
+                )
+                if hasattr(req, "system_prompt"):
+                    req.system_prompt = (
+                        f"{req.system_prompt}\n\n{hint}"
+                        if req.system_prompt
+                        else hint
+                    )
+
         if not as_bool(self._get("image_memory", True), True):
             return
         entry = event.get_extra("_gw_image_entry")
@@ -333,10 +418,7 @@ class GroupWatchPlugin(Star):
         if not self._bot_id:
             self._bot_id = str(event.get_self_id() or "")
         if not self._bot_name:
-            try:
-                self._bot_name = str(event.get_self_name() or "").strip()
-            except Exception:
-                self._bot_name = ""
+            self._bot_name = await self._resolve_bot_name(event)
 
         if sender_id and sender_id == self._bot_id:
             return
@@ -349,8 +431,14 @@ class GroupWatchPlugin(Star):
         now = time.time()
         state = self.state_mgr.get_state(session_id, self._bot_id, self._bot_name)
         state["bot_id"] = self._bot_id
-        if self._bot_name:
-            state["bot_name"] = self._bot_name
+
+        # 动态拉取并保持本群名片最新
+        if not state.get("bot_name") or state.get("bot_name") in ("我", "机器人"):
+            group_card = await self._resolve_bot_name(event)
+            if group_card:
+                state["bot_name"] = group_card
+                if not self._bot_name or self._bot_name in ("我", "机器人"):
+                    self._bot_name = group_card
 
         if state["follow_until"] and now >= state["follow_until"]:
             state["follow_until"] = 0.0
@@ -946,6 +1034,11 @@ class GroupWatchPlugin(Star):
             orig_msgs = list(getattr(msg_obj, "message", []) or [])
             qq_val = int(bot_id) if bot_id.isdigit() else bot_id
 
+            had_explicit_at = any(
+                isinstance(m, At) and str(getattr(m, "qq", "")) == str(bot_id)
+                for m in orig_msgs
+            )
+
             msg_obj.message = [At(qq=qq_val)] + [
                 m
                 for m in orig_msgs
@@ -958,6 +1051,8 @@ class GroupWatchPlugin(Star):
             wake_event.is_wake = True
             wake_event.is_at_or_wake_command = True
             wake_event.set_extra("_gw_triggered", True)
+            wake_event.set_extra("_gw_had_explicit_at", had_explicit_at)
+            wake_event.set_extra("_gw_orig_prompt", last_event.message_str)
             adapter.commit_event(wake_event)
             logger.info(
                 f"[group_watch] 判定接话，已唤醒主模型回复 (平台: {adapter.meta().name})"
@@ -989,15 +1084,9 @@ class GroupWatchPlugin(Star):
         state = self.state_mgr.get_state(session_id, self._bot_id, self._bot_name)
         threshold = self._threshold()
 
-        raw_prompt = self._str("judge_system_prompt", "").strip()
-        if not raw_prompt:
-            raw_prompt = DEFAULT_JUDGE_SYSTEM_PROMPT
-        if "{identity_block}" in raw_prompt:
-            system = raw_prompt.replace(
-                "{identity_block}", self._identity_block(session_id)
-            )
-        else:
-            system = self._identity_block(session_id) + "\n" + raw_prompt
+        system = DEFAULT_JUDGE_SYSTEM_PROMPT.replace(
+            "{identity_block}", self._identity_block(session_id)
+        )
 
         buf = self.state_mgr.buffers.get(session_id) or []
         turn_hint = ""
@@ -1030,9 +1119,9 @@ class GroupWatchPlugin(Star):
                 f"{follow_name}({follow_uid})" if follow_name else follow_uid
             )
             context_hint = (
-                f"\n[多轮互动提示] 机器人刚才正在与群友 {target_display} 连续对话中。"
-                f"如果该群友是在承接刚才与你的话题进行追问/调侃，请判定为 \"bot\"；"
-                f"【注意】：若该群友转向跟其他群友说话或在群里自言自语，必须如实判定为 \"user\" 或 \"everyone\"，严禁误判为 bot！\n"
+                f"\n[多轮互动状态]：机器人上一轮刚回复过群友 {target_display}。"
+                f"若该发言属于延续上一轮人机对话（如追问、反问、评价、情绪反馈或反驳），判定 target 为 \"bot\"；"
+                f"若该发言已明显转向与他人交流或向全群发起无关新话题，请按实际语境判定为 \"user\" 或 \"everyone\"。\n"
             )
 
         last_human_text = str((human_buf[-1] if human_buf else {}).get("text") or "")
@@ -1043,10 +1132,10 @@ class GroupWatchPlugin(Star):
         if matched_kws:
             kw_str = "、".join(matched_kws)
             kw_hint = (
-                f"\n[关注关键词命中提醒]：当前消息中出现了关注词「{kw_str}」。"
-                f"请结合上下文语境严谨甄别：\n"
-                f"- 若该词确实是在直接呼唤/向机器人提问（如叫机器人出来、向机器人请教），请判定 target 为 \"bot\" 并给出 85~100 的高分；\n"
-                f"- 若该词是在称呼其他群友的外号/代称、谈论他人或作为普通名词，绝不可误判为呼唤机器人，必须根据实际对象判定为 \"user\" 或 \"everyone\"，且不得给予关键词加分！\n"
+                f"\n[关注词/别名提醒]：消息中包含了机器人的已知称谓「{kw_str}」。"
+                f"若发言意图为呼唤、提问、命令或与该称谓互动，判定 target 为 \"bot\"；"
+                f"若仅作为客观讨论中的普通名词/代称且未与机器人对话，按实际公共或他人语境评估。\n"
+
             )
 
         prompt = (

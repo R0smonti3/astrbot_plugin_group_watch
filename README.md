@@ -61,7 +61,6 @@ git clone https://github.com/R0smonti3/astrbot_plugin_group_watch.git
 | `repeat_trigger_count` | 整数 | `3` | `0 ~ 10` 次 | 群友连续发送同一句话达到该次数时自动跟读（0 表示关闭）。 |
 | `image_memory` | 布尔值 | `true` | `true` / `false` | 是否在处理图片时生成文字摘要存入语境缓存。 |
 | `image_summary_chars` | 整数 | `200` | `60 ~ 500` 字 | 单张图片摘要文字的最大截断长度。 |
-| `judge_system_prompt` | 文本 | (预设提示词) | 提示词模板 | 传递给轻量评估模型的系统提示词模板。 |
 
 ---
 
