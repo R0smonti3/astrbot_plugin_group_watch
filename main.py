@@ -17,6 +17,11 @@ from astrbot.api.star import Context, Star
 from astrbot.core.message.components import At, AtAll, Image, Plain, Reply
 
 try:
+    from astrbot.core.agent.message import TextPart
+except ImportError:
+    TextPart = None
+
+try:
     from .constants import (
         DEFAULT_JUDGE_PROVIDER,
         DEFAULT_JUDGE_SYSTEM_PROMPT,
@@ -375,12 +380,16 @@ class GroupWatchPlugin(Star):
                     f"请结合语境自然交流：若群友在呼唤你，请正常回应；"
                     f"若群友在相互交谈探讨，以普通群友身份随和参与即可，切勿产生不必要的自我辩解。"
                 )
-                if hasattr(req, "system_prompt"):
-                    req.system_prompt = (
-                        f"{req.system_prompt}\n\n{hint}"
-                        if req.system_prompt
-                        else hint
+                if (
+                    TextPart is not None
+                    and hasattr(req, "extra_user_content_parts")
+                    and isinstance(req.extra_user_content_parts, list)
+                ):
+                    req.extra_user_content_parts.append(
+                        TextPart(text=f"\n\n{hint}").mark_as_temp()
                     )
+                elif hasattr(req, "prompt") and req.prompt:
+                    req.prompt = f"{req.prompt}\n\n{hint}"
 
         if not as_bool(self._get("image_memory", True), True):
             return
@@ -1084,9 +1093,9 @@ class GroupWatchPlugin(Star):
         state = self.state_mgr.get_state(session_id, self._bot_id, self._bot_name)
         threshold = self._threshold()
 
-        system = DEFAULT_JUDGE_SYSTEM_PROMPT.replace(
-            "{identity_block}", self._identity_block(session_id)
-        )
+        system = DEFAULT_JUDGE_SYSTEM_PROMPT
+        identity_part = self._identity_block(session_id)
+        identity_prefix = f"{identity_part}\n\n" if identity_part else ""
 
         buf = self.state_mgr.buffers.get(session_id) or []
         turn_hint = ""
@@ -1139,6 +1148,7 @@ class GroupWatchPlugin(Star):
             )
 
         prompt = (
+            f"{identity_prefix}"
             f"群聊记录（从旧到新）：\n{context}\n"
             f"{turn_hint}"
             f"{context_hint}"
@@ -1192,6 +1202,7 @@ class GroupWatchPlugin(Star):
     @staticmethod
     async def _call_text(provider, system: str, prompt: str, session_id: str) -> str:
         """评估模型：只锁死低温度(0.1)，不限Token上限，完美支持带思维链的模型(如ds-1017/R1)，自动容错降级。"""
+        judge_session_id = f"gw_judge:{session_id}" if session_id else "gw_judge"
         try:
             try:
                 response = await asyncio.wait_for(
@@ -1199,7 +1210,7 @@ class GroupWatchPlugin(Star):
                         prompt=prompt,
                         system_prompt=system,
                         contexts=[],
-                        session_id=session_id,
+                        session_id=judge_session_id,
                         temperature=0.1,
                         response_format={"type": "json_object"},
                     ),
@@ -1214,7 +1225,7 @@ class GroupWatchPlugin(Star):
                                 prompt=prompt,
                                 system_prompt=system,
                                 contexts=[],
-                                session_id=session_id,
+                                session_id=judge_session_id,
                                 temperature=0.1,
                             ),
                             timeout=60,
@@ -1225,7 +1236,7 @@ class GroupWatchPlugin(Star):
                                 prompt=prompt,
                                 system_prompt=system,
                                 contexts=[],
-                                session_id=session_id,
+                                session_id=judge_session_id,
                             ),
                             timeout=60,
                         )
@@ -1235,7 +1246,7 @@ class GroupWatchPlugin(Star):
                             prompt=prompt,
                             system_prompt=system,
                             contexts=[],
-                            session_id=session_id,
+                            session_id=judge_session_id,
                         ),
                         timeout=60,
                     )

@@ -31,9 +31,8 @@ class SilenceStorage:
             except Exception:
                 pass
             candidates.append(Path.cwd() / "data" / "plugin_data" / "astrbot_plugin_group_watch" / "silence_records.json")
-            candidates.append(Path(__file__).resolve().parent / "data" / "silence_records.json")
 
-            selected_path = candidates[-1]
+            selected_path = candidates[0] if candidates else (Path.cwd() / "data" / "plugin_data" / "astrbot_plugin_group_watch" / "silence_records.json")
             for cand in candidates:
                 try:
                     cand.parent.mkdir(parents=True, exist_ok=True)

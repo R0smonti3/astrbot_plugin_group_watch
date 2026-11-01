@@ -7,7 +7,7 @@
   },
   "web_token": {
     "description": "看板访问保护令牌 (Token)",
-    "hint": "可选的安全访问令牌。若设置，访问 Web 看板 API 时必须通过 Header (Authorization: Bearer <token>) 或 Url 参数 (?token=...) 验证，防止公网部署泄露群聊记录；留空则不开启访问校验。",
+    "hint": "【公网安全告警】默认留空无鉴权。若 AstrBot 部署在公网或开放公网端口，强烈建议配置高强度访问令牌！配置后访问 Web 看板 API 必须通过 Header (Authorization: Bearer <token>) 或 Url 参数 (?token=...) 验证，防止未授权访问泄露群聊记录。",
     "type": "string",
     "default": ""
   },
