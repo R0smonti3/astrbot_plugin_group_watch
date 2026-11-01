@@ -179,6 +179,24 @@ class GroupWatchPlugin(Star):
                     words.append(s)
         return words
 
+    @staticmethod
+    def _match_wake_word(word: str, text: str) -> bool:
+        """匹配关注词/唤醒词：纯英文/数字使用单词边界正则，避免误匹配普通单词或 URL；中文及其它符号使用子串匹配。"""
+        if not word or not text:
+            return False
+        w = word.strip()
+        if not w:
+            return False
+        if w.isascii() and w.isalnum():
+            return bool(
+                re.search(
+                    rf"(?<![a-zA-Z0-9]){re.escape(w)}(?![a-zA-Z0-9])",
+                    text,
+                    re.IGNORECASE,
+                )
+            )
+        return w.lower() in text.lower()
+
     def _identity_block(self, session_id: str = "") -> str:
         bot_id = self._bot_id
         state = self.state_mgr.get_state(session_id, self._bot_id, self._bot_name) if session_id else {}
@@ -388,8 +406,6 @@ class GroupWatchPlugin(Star):
                     req.extra_user_content_parts.append(
                         TextPart(text=f"\n\n{hint}").mark_as_temp()
                     )
-                elif hasattr(req, "prompt") and req.prompt:
-                    req.prompt = f"{req.prompt}\n\n{hint}"
 
         if not as_bool(self._get("image_memory", True), True):
             return
@@ -696,7 +712,7 @@ class GroupWatchPlugin(Star):
                 return
 
             for w in wake_words:
-                if w.lower() in text_lower:
+                if self._match_wake_word(w, clean_text):
                     matched_wake_word = w
                     break
 
@@ -1135,7 +1151,7 @@ class GroupWatchPlugin(Star):
 
         last_human_text = str((human_buf[-1] if human_buf else {}).get("text") or "")
         matched_kws = [
-            w for w in self._wake_words() if w.lower() in last_human_text.lower()
+            w for w in self._wake_words() if self._match_wake_word(w, last_human_text)
         ]
         kw_hint = ""
         if matched_kws:
