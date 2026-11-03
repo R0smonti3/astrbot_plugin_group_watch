@@ -61,6 +61,7 @@ git clone https://github.com/R0smonti3/astrbot_plugin_group_watch.git
 | `repeat_trigger_count` | 整数 | `3` | `0 ~ 10` 次 | 群友连续发送同一句话达到该次数时自动跟读（0 表示关闭）。 |
 | `image_memory` | 布尔值 | `true` | `true` / `false` | 是否在处理图片时生成文字摘要存入语境缓存。 |
 | `image_summary_chars` | 整数 | `200` | `60 ~ 500` 字 | 单张图片摘要文字的最大截断长度。 |
+| `ignore_users` | 列表 | `[]` | 用户 ID 列表 | 忽略成员黑名单。列表内成员发言直接静默跳过，不触发防抖与模型评估。 |
 
 ---
 
@@ -75,6 +76,9 @@ git clone https://github.com/R0smonti3/astrbot_plugin_group_watch.git
 | `/gw on` | 临时开启群聊巡视（仅本次运行有效）。 |
 | `/gw off` | 临时暂停群聊巡视（仅本次运行有效）。 |
 | `/gw silence [分钟数]` | 让机器人进入指定时长的静默期（如 `/gw silence 30` 静默半小时，`/gw silence 0` 解除静默）。 |
+| `/gw ban <用户ID>` | 将指定用户加入忽略黑名单，发言不再触发巡视搭话。 |
+| `/gw unban <用户ID>` | 将指定用户移出忽略黑名单。 |
+| `/gw banlist` | 查看当前群聊巡视忽略黑名单列表。 |
 
 > **提示**：普通群友也可以直接发送“`@机器人 闭嘴 30`”或“`@机器人 闭嘴 1小时`”触发自定义时长的静默；再次显式 `@机器人` 提问可提前解除静默。
 

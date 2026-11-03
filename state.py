@@ -315,3 +315,84 @@ class StateManager:
             if not task.done():
                 task.cancel()
         self._debounce_tasks.clear()
+
+class IgnoreUserStorage:
+    """被忽略群成员黑名单持久化，写入 data/plugin_data/astrbot_plugin_group_watch/ignore_users.json"""
+
+    def __init__(self, target_path: Path | None = None) -> None:
+        if target_path is not None:
+            self._path = target_path
+        else:
+            candidates: list[Path] = []
+            try:
+                from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+                candidates.append(Path(get_astrbot_plugin_data_path()) / "astrbot_plugin_group_watch" / "ignore_users.json")
+            except Exception:
+                pass
+            candidates.append(Path.cwd() / "data" / "plugin_data" / "astrbot_plugin_group_watch" / "ignore_users.json")
+
+            selected_path = candidates[0] if candidates else (Path.cwd() / "data" / "plugin_data" / "astrbot_plugin_group_watch" / "ignore_users.json")
+            for cand in candidates:
+                try:
+                    cand.parent.mkdir(parents=True, exist_ok=True)
+                    selected_path = cand
+                    break
+                except (PermissionError, OSError):
+                    continue
+            self._path = selected_path
+
+        self._users: set[str] = set()
+        self.load()
+
+    def load(self) -> set[str]:
+        if not self._path.is_file():
+            self._users = set()
+            return self._users
+        try:
+            raw = self._path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            if isinstance(data, list):
+                self._users = {str(item).strip() for item in data if str(item).strip()}
+            elif isinstance(data, dict) and "users" in data:
+                self._users = {str(item).strip() for item in data["users"] if str(item).strip()}
+            else:
+                self._users = set()
+            return self._users
+        except Exception as exc:
+            logger.warning(f"[group_watch] 读取忽略成员记录失败: {exc}")
+            self._users = set()
+            return self._users
+
+    def _save(self) -> None:
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = self._path.with_suffix(".json.tmp")
+            data = sorted(list(self._users))
+            tmp_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            os.replace(tmp_path, self._path)
+        except Exception as exc:
+            logger.warning(f"[group_watch] 保存忽略成员记录失败: {exc}")
+
+    def add(self, user_id: str) -> bool:
+        uid = str(user_id).strip()
+        if not uid:
+            return False
+        if uid in self._users:
+            return False
+        self._users.add(uid)
+        self._save()
+        return True
+
+    def remove(self, user_id: str) -> bool:
+        uid = str(user_id).strip()
+        if uid not in self._users:
+            return False
+        self._users.remove(uid)
+        self._save()
+        return True
+
+    def all(self) -> set[str]:
+        return set(self._users)

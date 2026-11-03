@@ -31,7 +31,7 @@ try:
         as_bool,
     )
     from .image_service import ImageService
-    from .state import StateManager
+    from .state import IgnoreUserStorage, StateManager
 except (ImportError, ValueError):
     from constants import (
         DEFAULT_JUDGE_PROVIDER,
@@ -42,7 +42,7 @@ except (ImportError, ValueError):
         as_bool,
     )
     from image_service import ImageService
-    from state import StateManager
+    from state import IgnoreUserStorage, StateManager
 
 
 class GroupWatchPlugin(Star):
@@ -59,6 +59,8 @@ class GroupWatchPlugin(Star):
         self._enabled = bool(self._get("enabled", True))
         self._bot_id = ""
         self._bot_name = ""
+        self.ignore_storage = IgnoreUserStorage()
+        self._runtime_ignore_users: set[str] = self.ignore_storage.all()
 
     # ------------------------------------------------------------------
     # 配置读取与模型选项同步
@@ -79,6 +81,22 @@ class GroupWatchPlugin(Star):
     def _str(self, key: str, default: str = "") -> str:
         value = self._get(key, default)
         return str(value) if value is not None else default
+
+    def _get_ignore_users(self) -> set[str]:
+        cfg_raw = self._get("ignore_users", []) or []
+        if isinstance(cfg_raw, str):
+            parts = [p.strip() for p in re.split(r"[,;\n]", cfg_raw)]
+        elif isinstance(cfg_raw, (list, set, tuple)):
+            parts = [str(p).strip() for p in cfg_raw]
+        else:
+            parts = []
+        cfg_set = {p for p in parts if p}
+        return cfg_set | self._runtime_ignore_users
+
+    def _is_user_ignored(self, sender_id: str) -> bool:
+        if not sender_id:
+            return False
+        return sender_id in self._get_ignore_users()
 
     def _sync_judge_options(self) -> None:
         """把 AstrBot 当前可用的 chat 模型写进设置面板的下拉列表（只读环境安全跳过）。"""
@@ -440,6 +458,8 @@ class GroupWatchPlugin(Star):
             return
 
         sender_id = str(event.get_sender_id() or "")
+        if self._is_user_ignored(sender_id):
+            return
         if not self._bot_id:
             self._bot_id = str(event.get_self_id() or "")
         if not self._bot_name:
@@ -1515,6 +1535,35 @@ class GroupWatchPlugin(Star):
         elif arg == "off":
             self._enabled = False
             yield event.plain_result("群聊巡视已暂停（仅本次运行）。")
+        elif arg == "ban":
+            parts = raw.split()
+            if len(parts) < 2:
+                yield event.plain_result("用法：/gw ban <用户ID/QQ号>")
+                return
+            target_uid = parts[1].strip()
+            if self.ignore_storage.add(target_uid):
+                self._runtime_ignore_users.add(target_uid)
+                yield event.plain_result(f"已将用户 {target_uid} 加入群聊巡视忽略黑名单。")
+            else:
+                yield event.plain_result(f"用户 {target_uid} 已在忽略黑名单中。")
+        elif arg == "unban":
+            parts = raw.split()
+            if len(parts) < 2:
+                yield event.plain_result("用法：/gw unban <用户ID/QQ号>")
+                return
+            target_uid = parts[1].strip()
+            if self.ignore_storage.remove(target_uid):
+                self._runtime_ignore_users.discard(target_uid)
+                yield event.plain_result(f"已将用户 {target_uid} 从忽略黑名单中移除。")
+            else:
+                yield event.plain_result(f"用户 {target_uid} 不在忽略黑名单中。")
+        elif arg == "banlist":
+            all_users = sorted(list(self._get_ignore_users()))
+            if not all_users:
+                yield event.plain_result("当前未配置任何忽略黑名单成员。")
+            else:
+                lines_u = ["• " + str(u) for u in all_users]
+                yield event.plain_result("【群聊巡视忽略黑名单】\n" + "\n".join(lines_u))
         elif arg == "silence":
             parts = raw.split()
             s_min = max(1, self._int("silence_duration_minutes", 10))
@@ -1537,7 +1586,7 @@ class GroupWatchPlugin(Star):
                 state["unrelated"] = 0
                 yield event.plain_result(f"当前群聊已进入静默期 {s_min} 分钟（可随时发送“/gw silence 0”提前解除）。")
         else:
-            yield event.plain_result("用法：/gw status | now | on | off | silence [分钟数]")
+            yield event.plain_result("用法：/gw status | now | on | off | silence [分钟数] | ban <ID> | unban <ID> | banlist")
 
     def _status_text(self) -> str:
         if not self.state_mgr.buffers:
