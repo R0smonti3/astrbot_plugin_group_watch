@@ -82,7 +82,7 @@ class GroupWatchPlugin(Star):
         value = self._get(key, default)
         return str(value) if value is not None else default
 
-    def _get_ignore_users(self) -> set[str]:
+    def _get_config_ignore_users(self) -> set[str]:
         cfg_raw = self._get("ignore_users", []) or []
         if isinstance(cfg_raw, str):
             parts = [p.strip() for p in re.split(r"[,;\n]", cfg_raw)]
@@ -90,8 +90,10 @@ class GroupWatchPlugin(Star):
             parts = [str(p).strip() for p in cfg_raw]
         else:
             parts = []
-        cfg_set = {p for p in parts if p}
-        return cfg_set | self._runtime_ignore_users
+        return {p for p in parts if p}
+
+    def _get_ignore_users(self) -> set[str]:
+        return self._get_config_ignore_users() | self._runtime_ignore_users
 
     def _is_user_ignored(self, sender_id: str) -> bool:
         if not sender_id:
@@ -1541,29 +1543,46 @@ class GroupWatchPlugin(Star):
                 yield event.plain_result("用法：/gw ban <用户ID/QQ号>")
                 return
             target_uid = parts[1].strip()
-            if self.ignore_storage.add(target_uid):
+            cfg_users = self._get_config_ignore_users()
+            if target_uid in cfg_users:
+                yield event.plain_result(f"用户 {target_uid} 已在 WebUI 静态配置 (ignore_users) 中生效，无需重复添加。")
+                return
+            ok, msg = self.ignore_storage.add(target_uid)
+            if ok:
                 self._runtime_ignore_users.add(target_uid)
                 yield event.plain_result(f"已将用户 {target_uid} 加入群聊巡视忽略黑名单。")
             else:
-                yield event.plain_result(f"用户 {target_uid} 已在忽略黑名单中。")
+                yield event.plain_result(f"添加失败：{msg}")
         elif arg == "unban":
             parts = raw.split()
             if len(parts) < 2:
                 yield event.plain_result("用法：/gw unban <用户ID/QQ号>")
                 return
             target_uid = parts[1].strip()
-            if self.ignore_storage.remove(target_uid):
+            cfg_users = self._get_config_ignore_users()
+            if target_uid in cfg_users:
+                yield event.plain_result(
+                    f"用户 {target_uid} 来源于 WebUI 静态配置 (ignore_users)，指令无法直接修改配置文件。请在 AstrBot 管理面板的插件设置中手动删除。"
+                )
+                return
+            ok, msg = self.ignore_storage.remove(target_uid)
+            if ok:
                 self._runtime_ignore_users.discard(target_uid)
-                yield event.plain_result(f"已将用户 {target_uid} 从忽略黑名单中移除。")
+                yield event.plain_result(f"已将用户 {target_uid} 从动态忽略黑名单中移除。")
             else:
-                yield event.plain_result(f"用户 {target_uid} 不在忽略黑名单中。")
+                yield event.plain_result(f"移除失败：{msg}")
         elif arg == "banlist":
-            all_users = sorted(list(self._get_ignore_users()))
-            if not all_users:
+            cfg_users = self._get_config_ignore_users()
+            rt_users = self.ignore_storage.all()
+            if not cfg_users and not rt_users:
                 yield event.plain_result("当前未配置任何忽略黑名单成员。")
             else:
-                lines_u = ["• " + str(u) for u in all_users]
-                yield event.plain_result("【群聊巡视忽略黑名单】\n" + "\n".join(lines_u))
+                lines_out = ["【群聊巡视忽略黑名单】"]
+                if cfg_users:
+                    lines_out.append(f"• 静态配置 ({len(cfg_users)} 人): " + ", ".join(sorted(list(cfg_users))))
+                if rt_users:
+                    lines_out.append(f"• 动态指令 ({len(rt_users)} 人): " + ", ".join(sorted(list(rt_users))))
+                yield event.plain_result("\n".join(lines_out))
         elif arg == "silence":
             parts = raw.split()
             s_min = max(1, self._int("silence_duration_minutes", 10))

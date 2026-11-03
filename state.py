@@ -363,7 +363,7 @@ class IgnoreUserStorage:
             self._users = set()
             return self._users
 
-    def _save(self) -> None:
+    def _save(self) -> bool:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = self._path.with_suffix(".json.tmp")
@@ -373,26 +373,32 @@ class IgnoreUserStorage:
                 encoding="utf-8",
             )
             os.replace(tmp_path, self._path)
+            return True
         except Exception as exc:
             logger.warning(f"[group_watch] 保存忽略成员记录失败: {exc}")
+            return False
 
-    def add(self, user_id: str) -> bool:
+    def add(self, user_id: str) -> tuple[bool, str]:
         uid = str(user_id).strip()
         if not uid:
-            return False
+            return False, "用户 ID 不能为空"
         if uid in self._users:
-            return False
+            return False, "用户已在动态黑名单中"
         self._users.add(uid)
-        self._save()
-        return True
+        if not self._save():
+            self._users.remove(uid)
+            return False, "持久化文件写入失败，请检查文件写入权限"
+        return True, "添加成功"
 
-    def remove(self, user_id: str) -> bool:
+    def remove(self, user_id: str) -> tuple[bool, str]:
         uid = str(user_id).strip()
         if uid not in self._users:
-            return False
+            return False, "用户不在动态黑名单中"
         self._users.remove(uid)
-        self._save()
-        return True
+        if not self._save():
+            self._users.add(uid)
+            return False, "持久化文件写入失败，请检查文件写入权限"
+        return True, "移除成功"
 
     def all(self) -> set[str]:
         return set(self._users)
