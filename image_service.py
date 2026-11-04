@@ -27,17 +27,32 @@ class ImageService:
 
     @staticmethod
     def extract_prompt_images(req: Any) -> list[str]:
-        """从 AstrBot 请求对象提取图片文件路径或 URL。"""
+        """从 AstrBot 请求对象提取图片文件路径或 URL (优先 req.image_urls)。"""
         images: list[str] = []
-        for prompt_item in getattr(req, "prompt", []) or []:
-            if isinstance(prompt_item, Image):
-                p = getattr(prompt_item, "path", None) or getattr(prompt_item, "url", None)
-                if p:
-                    images.append(str(p))
-            elif isinstance(prompt_item, dict) and prompt_item.get("type") == "image":
-                url = prompt_item.get("url") or prompt_item.get("image")
-                if url:
-                    images.append(str(url))
+        # 1. AstrBot 4.29+ 标准规范：从 req.image_urls 提取
+        for item in getattr(req, "image_urls", []) or []:
+            if item:
+                images.append(str(item))
+
+        # 2. 兼容性回退：检查 extra_user_content_parts 与列表型 prompt
+        if not images:
+            for part in getattr(req, "extra_user_content_parts", []) or []:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    img_info = part.get("image_url", {})
+                    u = img_info.get("url") if isinstance(img_info, dict) else str(img_info)
+                    if u:
+                        images.append(str(u))
+            prompt_val = getattr(req, "prompt", None)
+            if isinstance(prompt_val, list):
+                for prompt_item in prompt_val:
+                    if isinstance(prompt_item, Image):
+                        p = getattr(prompt_item, "path", None) or getattr(prompt_item, "url", None)
+                        if p:
+                            images.append(str(p))
+                    elif isinstance(prompt_item, dict) and prompt_item.get("type") == "image":
+                        url = prompt_item.get("url") or prompt_item.get("image")
+                        if url:
+                            images.append(str(url))
         return images[:MAX_IMAGES_PER_MESSAGE]
 
     def create_describe_task(

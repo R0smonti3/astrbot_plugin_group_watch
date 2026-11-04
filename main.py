@@ -1003,7 +1003,7 @@ class GroupWatchPlugin(Star):
             threshold = int(judge.get("threshold") or 0)
             reason = str(judge.get("reason") or "")
 
-            related = score >= threshold
+            related = bool(judge.get("related", False)) and (score >= threshold) and (target != "user")
 
             if mode == "follow":
                 if not related:
@@ -1309,7 +1309,7 @@ class GroupWatchPlugin(Star):
                     return data
             except Exception:
                 try:
-                    fixed = re.sub(r",\s*([}\]])", r"", candidate)
+                    fixed = re.sub(r",\s*([}\]])", r"\1", candidate)
                     data = json.loads(fixed)
                     if isinstance(data, dict):
                         return data
