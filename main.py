@@ -1003,7 +1003,8 @@ class GroupWatchPlugin(Star):
             threshold = int(judge.get("threshold") or 0)
             reason = str(judge.get("reason") or "")
 
-            related = bool(judge.get("related", False)) and (score >= threshold) and (target != "user")
+            # 若模型明确标记 related=False(如无可用模型)则否决；默认与兜底必须满足分值达标且非私聊他人
+            related = bool(judge.get("related", (score >= threshold) and (target != "user"))) and (score >= threshold) and (target != "user")
 
             if mode == "follow":
                 if not related:
@@ -1217,7 +1218,9 @@ class GroupWatchPlugin(Star):
         else:
             final_score = raw_score
 
+        is_related = (final_score >= threshold) and (target != "user")
         return {
+            "related": is_related,
             "score": final_score,
             "raw_score": raw_score,
             "threshold": threshold,
