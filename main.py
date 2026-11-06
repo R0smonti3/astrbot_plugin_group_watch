@@ -413,10 +413,10 @@ class GroupWatchPlugin(Star):
                 name_clause = f"你在本群的名字是{call_info}。" if call_info else ""
 
                 hint = (
-                    f"[群聊场景说明]：你是被插件唤醒的，插件判断这个时候应当主动发言，但是没有人@你。"
+                    f"[群聊场景说明]：你是被插件机制主动唤醒的，当前消息没有人直接@你。"
                     f"{name_clause}"
-                    f"请结合语境自然交流：若群友在呼唤你，请正常回应；"
-                    f"若群友在相互交谈探讨，以普通群友身份随和参与即可，切勿产生不必要的自我辩解。"
+                    f"请仔细分析上下文并判断交流对象是谁：消息中出现“你/您”等代词并不一定代表是在对你说话，请结合上下文仔细甄别；"
+                    f"若无法明确判定是在对你发言，请遵循疑罪从无原则，将其当成对别人的话来回复，以普通群友身份随和参与讨论，切勿强行认领或产生不必要的自我辩解。"
                 )
                 if (
                     TextPart is not None
@@ -1005,6 +1005,9 @@ class GroupWatchPlugin(Star):
 
             # 若模型明确标记 related=False(如无可用模型)则否决；默认与兜底必须满足分值达标且非私聊他人
             related = bool(judge.get("related", (score >= threshold) and (target != "user"))) and (score >= threshold) and (target != "user")
+
+            if score >= threshold and target == "user":
+                reason = f"[群友间对话一票否决保持安静] {reason}".strip()
 
             if mode == "follow":
                 if not related:

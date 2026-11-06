@@ -596,9 +596,12 @@
           ? '<span class="tag ' + (d.related ? 'tag-success' : 'tag-neutral') + '">评分: ' + d.score + ' / 门槛: ' + d.threshold + '</span>'
           : '';
 
+        const isUserVeto = !d.related && d.target === "user" && d.score >= d.threshold;
         const relatedTag = d.related
           ? '<span class="tag tag-success">适合接话</span>'
-          : '<span class="tag tag-neutral">保持安静</span>';
+          : (isUserVeto
+              ? '<span class="tag tag-warning">🚫 群友私聊否决</span>'
+              : '<span class="tag tag-neutral">保持安静</span>');
 
         let actionTag = "";
         if (d.mode === "repeat") {
