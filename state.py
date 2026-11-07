@@ -240,11 +240,19 @@ class StateManager:
             text = text[-4000:]
         return text
 
-    def get_participants(self, session_id: str, count: int = 40) -> list[str]:
+    def get_participants(
+        self, session_id: str, count: int = 40, bot_id: str = "", bot_name: str = ""
+    ) -> list[str]:
         seen: list[str] = []
+        b_id = str(bot_id or "")
+        b_name = str(bot_name or "").strip().lower()
         for item in (self._buffers.get(session_id) or [])[-count:]:
             uid = str(item.get("uid") or "")
             name = str(item.get("name") or "").strip()
+            if b_id and uid == b_id:
+                continue
+            if b_name and name.lower() == b_name:
+                continue
             label = f"{name}({uid})" if name else uid
             if uid and not item.get("is_bot") and label not in seen:
                 seen.append(label)
